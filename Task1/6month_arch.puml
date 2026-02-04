@@ -34,7 +34,7 @@ package "Бэкенд-сервисы" {
 }
 
 queue "Messages Queue\n(RabbitMQ)" as rabbitmq {
-  note right: "order.created\nprice.calculated\nstatus.updated\nmanufacturing.*"
+  
 }
 
 component "Redis Cache" as redis
