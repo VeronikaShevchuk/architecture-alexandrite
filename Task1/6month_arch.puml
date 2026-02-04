@@ -1,0 +1,141 @@
+@startuml
+skinparam {
+  BackgroundColor #FFFFFF
+  DefaultFontColor #000000
+  DefaultFontSize 12
+  ArrowColor #000000
+  BorderColor #666666
+  Shadowing false
+}
+
+title Целевая архитектура "Александрит" через 6 месяцев
+
+actor "Customer" as customer
+actor "Seller" as seller
+actor "API user" as api_user
+actor "Operator" as operator
+
+component "API Gateway" as api_gateway {
+  note right: "Аутентификация\nRate limiting\nМаршрутизация"
+}
+
+package "Фронтенд-приложения" {
+  component "Интернет-магазин\n(Vue, TypeScript, Threejs)" as shop_front
+  component "CRM\n(Vue, TypeScript)" as crm_front  
+  component "MES\n(React, TypeScript)" as mes_front
+}
+
+package "Бэкенд-сервисы" {
+  component "Shop API\n(Spring Boot)" as shop_api
+  component "Order Service\n(Spring Boot)" as order_service
+  component "CRM API\n(Spring Boot)" as crm_api
+  component "MES API\n(C#)" as mes_api
+  component "Calculation Service\n(C#)" as calc_service
+}
+
+queue "Messages Queue\n(RabbitMQ)" as rabbitmq {
+  note right: "order.created\nprice.calculated\nstatus.updated\nmanufacturing.*"
+}
+
+component "Redis Cache" as redis
+
+database "Базы данных" {
+  database "Shop DB\n(PostgreSQL)" as shop_db
+  database "Order DB\n(PostgreSQL)" as order_db  
+  database "CRM DB\n(PostgreSQL)" as crm_db
+  database "MES DB\n(PostgreSQL)" as mes_db
+}
+
+component "3d files storage\n(S3-based storage)" as s3_storage
+
+package "Инфраструктура" {
+  component "Kubernetes Cluster" as k8s
+  component "Мониторинг\n(Prometheus, Grafana)" as monitoring
+}
+
+' Customer взаимодействует с магазином
+customer --> shop_front : "Создает заказ\nЗагружает 3D модель"
+shop_front --> api_gateway : "HTTPS"
+api_gateway --> shop_api : "REST API"
+
+' Seller использует CRM
+seller --> crm_front : "Управляет заказами\nПодтверждает производство"
+crm_front --> api_gateway : "HTTPS"
+api_gateway --> crm_api : "REST API"
+
+' Operator работает с MES
+operator --> mes_front : "Берет заказы в работу\nОбновляет статусы"
+mes_front --> api_gateway : "HTTPS"
+api_gateway --> mes_api : "REST API"
+
+' API user (B2B партнер)
+api_user --> api_gateway : "HTTPS с API ключом"
+api_gateway --> rabbitmq : "order.created (B2B)"
+
+' Shop API - работа с магазином
+shop_api --> s3_storage : "Загружает 3D файлы"
+shop_api --> rabbitmq : "order.created (B2C)"
+shop_api --> redis : "Кэш сессий"
+shop_api --> shop_db : "CRUD операций"
+
+' Order Service - единый источник истины
+rabbitmq --> order_service : "События заказов"
+order_service --> order_db : "Хранение состояния"
+order_service --> rabbitmq : "status.updated"
+order_service --> redis : "Кэш заказов"
+
+' CRM API - управление продажами
+crm_api --> crm_db : "Данные клиентов"
+rabbitmq --> crm_api : "status.updated\nmanufacturing.approved"
+
+' MES API - производство
+mes_api --> mes_db : "Производственные данные"
+mes_api --> rabbitmq : "manufacturing.started\nmanufacturing.completed"
+rabbitmq --> mes_api : "order.created (для производства)"
+
+' Calculation Service - асинхронный расчет
+rabbitmq --> calc_service : "price.calculation.request"
+calc_service --> rabbitmq : "price.calculated"
+calc_service --> s3_storage : "Читает 3D для расчета"
+calc_service --> redis : "Кэш результатов расчетов"
+
+' Сервисы вызывают Order Service для получения информации
+shop_api --> order_service : "Получает детали заказа"
+crm_api --> order_service : "Запрашивает статусы"
+mes_api --> order_service : "Получает информацию о заказе"
+
+' Все сервисы контейнеризированы в Kubernetes
+shop_api ..> k8s : "деплой"
+order_service ..> k8s : "деплой"
+crm_api ..> k8s : "деплой"
+mes_api ..> k8s : "деплой"
+calc_service ..> k8s : "деплой"
+rabbitmq ..> k8s : "деплой"
+
+' Мониторинг всех компонентов
+shop_api --> monitoring : "метрики"
+order_service --> monitoring : "метрики"
+crm_api --> monitoring : "метрики"
+mes_api --> monitoring : "метрики"
+calc_service --> monitoring : "метрики"
+rabbitmq --> monitoring : "метрики очередей"
+shop_db --> monitoring : "метрики БД"
+mes_db --> monitoring : "метрики БД"
+
+note right of order_service
+  **Order Service - центральный компонент**
+  - Единый источник истины по заказам
+  - Управляет жизненным циклом через Saga
+  - Координирует статусы между системами
+  - Обеспечивает консистентность данных
+end note
+
+note right of calc_service
+  **Calculation Service**
+  - Асинхронная обработка расчетов
+  - Горизонтальное масштабирование
+  - Кэширование результатов
+  - Изоляция тяжелых операций
+end note
+
+@enduml
