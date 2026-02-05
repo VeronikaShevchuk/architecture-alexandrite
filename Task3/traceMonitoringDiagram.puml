@@ -1,0 +1,117 @@
+@startuml
+title Архитектура системы "Александрит" с трейсингом и алертингом
+
+skinparam {
+  BackgroundColor #FFFFFF
+  DefaultFontColor #000000
+  FontSize 12
+  ArrowColor #000000
+  BorderColor #666666
+}
+
+' Пользователи
+actor Customer
+actor Seller  
+actor "API user" as APIuser
+actor Operator
+actor Support
+actor Developer
+actor "Production Manager" as Manager
+
+' Фронтенд-приложения
+component "Интернет-магазин" as shop_front
+component "CRM" as crm_front  
+component "MES" as mes_front
+
+' Бэкенд-сервисы
+component "Shop API" as shop_api
+component "CRM API" as crm_api
+component "MES API" as mes_api
+component "Order Service" as order_service
+
+' Инфраструктура
+queue "RabbitMQ" as rabbitmq
+database "Shop DB" as shop_db
+database "CRM DB" as crm_db
+database "MES DB" as mes_db
+database "Order DB" as order_db
+cloud "S3 Storage" as s3_storage
+
+' Система трейсинга (красные компоненты)
+rectangle "Трейсинг" {
+  component "Jaeger" as jaeger #FF3333
+  component "OTEL Collector" as otel #FF3333
+  component "Jaeger UI" as jaeger_ui #FF3333
+}
+
+' Авто-Мониторинг
+rectangle "Авто-Мониторинг" {
+  component "Prometheus" as prometheus #33AA33
+  component "Grafana" as grafana #33AA33
+  component "AlertManager" as alertmanager #33AA33
+  component "Ticket System" as ticket_system #33AA33
+  component "Order Flow Analyzer" as order_analyze #33AA33
+}
+
+
+
+' 1. Пользовательские взаимодействия
+Customer --> shop_front : "Заказ"
+shop_front --> shop_api
+
+Seller --> crm_front : "Управление"
+crm_front --> crm_api
+
+Operator --> mes_front : "Производство"
+mes_front --> mes_api
+
+APIuser --> mes_api : "B2B API"
+
+' 2. Бизнес-процессы
+shop_api --> order_service : "create"
+order_service --> order_db
+order_service --> rabbitmq : "order.created"
+rabbitmq --> mes_api : "расчет"
+mes_api --> s3_storage : "читать"
+mes_api --> rabbitmq : "price.calculated"
+rabbitmq --> crm_api : "статус"
+crm_api --> crm_db
+
+' 3. Трейсинг (красные линии)
+shop_api -[#FF3333,dashed]-> otel : "трейсы"
+crm_api -[#FF3333,dashed]-> otel : "трейсы"
+mes_api -[#FF3333,dashed]-> otel : "трейсы"
+order_service -[#FF3333,dashed]-> otel : "трейсы"
+
+otel --> jaeger : "сохранить"
+jaeger --> jaeger_ui : "доступ"
+
+' 4. Автоматический мониторинг (зеленые линии)
+jaeger -[#33AA33,dashed]-> prometheus : "анализ трейсов"
+prometheus --> order_analyze : "Анализ трейсов заказов в реальном времени"
+alertmanager --> ticket_system : "тикеты"
+ticket_system -[#33AA33,dashed]-> crm_api : "обновить статус"
+
+' 5. Интеграция с мониторингом
+otel --> prometheus : "метрики"
+prometheus --> grafana : "визуализация"
+prometheus --> alertmanager : "метрики"
+order_analyze --> alertmanager : "vtnhbrb"
+
+' 6. Уведомления
+alertmanager -[#33AA33,dashed]-> Support : "WorkChat"
+alertmanager -[#33AA33,dashed]-> Developer : "PagerDuty"
+alertmanager -[#33AA33,dashed]-> Manager : "Email"
+
+' 7. Доступ к системам
+Support -[#33AA33,dashed]-> jaeger_ui : "поиск"
+Developer -[#33AA33,dashed]-> jaeger_ui : "анализ"
+Manager -[#33AA33,dashed]-> grafana : "дашборды"
+
+' Легенда
+legend right
+  <color:#FF3333>Красный</color> = Трейсинг
+  <color:#33AA33>Зеленый</color> = Авто-мониторинг
+endlegend
+
+@enduml
