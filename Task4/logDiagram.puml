@@ -1,0 +1,126 @@
+@startuml
+title Архитектура системы с логированием
+
+skinparam {
+  BackgroundColor #FFFFFF
+  DefaultFontColor #000000
+  FontSize 11
+  ArrowColor #000000
+  BorderColor #666666
+}
+
+' Цвета
+!define LOG_COLOR #9966CC  ' Фиолетовый для компонентов логирования
+!define RED #FF3333
+!define GREEN #33AA33
+!define BLUE #3388FF
+
+' Пользователи
+actor Customer
+actor Seller  
+actor "API user" as APIuser
+actor Operator
+actor Support
+actor Developer
+actor "Prod Manager" as Manager
+
+' Доп компоненты мониторинг и трейсинг
+rectangle "Системы мониторинг и трейсинг" {
+    component "AlertManager" as AlertManager
+    component "Jaeger" as Jaeger
+    component "Grafana" as Grafana
+}
+
+' Фронтенд-приложения
+component "Интернет-магазин\n(Vue.js)" as shop_front
+component "CRM\n(Vue.js)" as crm_front  
+component "MES\n(React)" as mes_front
+
+' Бэкенд-сервисы
+component "Shop API\n(Spring Boot)" as shop_api
+component "CRM API\n(Spring Boot)" as crm_api
+component "MES API\n(C# .NET)" as mes_api
+
+' Инфраструктура
+queue "RabbitMQ" as rabbitmq
+database "Shop DB" as shop_db
+database "CRM DB" as crm_db
+database "MES DB" as mes_db
+cloud "S3 Storage" as s3_storage
+
+' ------------------------------------------------------------
+' СИСТЕМА ЛОГИРОВАНИЯ (НОВЫЕ КОМПОНЕНТЫ - ФИОЛЕТОВЫЕ)
+rectangle "Система логирования (ELK Stack)" {
+  component "Filebeat\n(агенты сбора)" as filebeat #9966CC
+  component "Logstash\n(обработка)" as logstash #9966CC
+  component "Elasticsearch\n(хранение)" as elasticsearch #9966CC
+  component "Kibana\n(визуализация)" as kibana #9966CC
+  
+  component "Log Processing\n(бизнес-логика)" as log_processor #9966CC
+}
+
+' ------------------------------------------------------------
+' 1. Пользовательские взаимодействия
+Customer --> shop_front
+shop_front --> shop_api
+
+Seller --> crm_front
+crm_front --> crm_api
+
+Operator --> mes_front
+mes_front --> mes_api
+
+APIuser --> mes_api
+
+' ------------------------------------------------------------
+' 2. Бизнес-процессы
+shop_api --> rabbitmq : "order.created"
+rabbitmq --> mes_api : "расчет стоимости"
+mes_api --> s3_storage : "чтение 3D"
+mes_api --> rabbitmq : "price.calculated"
+
+' ------------------------------------------------------------
+' 3. ЛОГИРОВАНИЕ - новые связи (фиолетовые линии)
+shop_api -[#9966CC]-> filebeat : "логи приложения"
+crm_api -[#9966CC]-> filebeat : "логи приложения"
+mes_api -[#9966CC]-> filebeat : "логи приложения"
+rabbitmq -[#9966CC]-> filebeat : "логи очередей"
+
+filebeat --> logstash : "сырые логи"
+logstash --> elasticsearch : "структурированные\nданные"
+elasticsearch --> kibana : "поиск и анализ"
+
+' ------------------------------------------------------------
+' 4. ОБРАБОТКА БИЗНЕС-ЛОГОВ
+elasticsearch -[#9966CC,dashed]-> log_processor : "чтение логов"
+log_processor --> elasticsearch : "обогащенные логи"
+log_processor --> "AlertManager" : "алерты на аномалии"
+
+' ------------------------------------------------------------
+' 5. ДОСТУП К СИСТЕМЕ ЛОГИРОВАНИЯ
+Support --> kibana : "поиск логов\nпо order_id"
+Developer --> kibana : "отладка проблем"
+Manager --> kibana : "бизнес-аналитика"
+
+' ------------------------------------------------------------
+' 6. ИНТЕГРАЦИЯ С СУЩЕСТВУЮЩИМИ СИСТЕМАМИ
+kibana --> "Grafana" : "дашборды"
+elasticsearch --> "Jaeger" : "корреляция\nлогов и трейсов"
+
+' ------------------------------------------------------------
+' Легенда
+legend right
+  <color:#9966CC>Фиолетовый</color> = Компоненты логирования
+  <color:#9966CC>Фиолетовые линии</color> = Потоки данных логирования
+  Черные линии = Бизнес-потоки
+endlegend
+
+note bottom of log_processor
+  <b>Обработка бизнес-логов:</b>
+  • Корреляция логов по trace_id
+  • Обогащение контекстом (order_id, user_id)
+  • Обнаружение аномалий
+  • Генерация бизнес-метрик
+end note
+
+@enduml

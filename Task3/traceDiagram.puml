@@ -1,0 +1,103 @@
+@startuml
+title Архитектура системы "Александрит" с трейсингом
+
+skinparam {
+  BackgroundColor #FFFFFF
+  DefaultFontColor #000000
+  FontSize 12
+  ArrowColor #000000
+  BorderColor #666666
+}
+
+' Пользователи
+actor "Customer" as customer
+actor "Seller" as seller  
+actor "API user" as api_user
+actor "Operator" as operator
+actor "Support" as support
+actor "Developer" as developer
+
+' Фронтенд-приложения
+component "Интернет-магазин\n(Vue)" as shop_front
+component "CRM\n(Vue)" as crm_front  
+component "MES\n(React)" as mes_front
+
+' Бэкенд-сервисы
+component "Shop API\n(Spring Boot)" as shop_api
+component "CRM API\n(Spring Boot)" as crm_api
+component "MES API\n(C#)" as mes_api
+component "Order Service\n(Spring Boot)" as order_service
+
+' Инфраструктура
+queue "RabbitMQ" as rabbitmq
+database "Shop DB" as shop_db
+database "CRM DB" as crm_db
+database "MES DB" as mes_db
+database "Order DB" as order_db
+cloud "S3 Storage" as s3_storage
+
+' Система трейсинга (новые компоненты - красным)
+rectangle "Система трейсинга" #FDD {
+  component "Jaeger\n(Tracing System)" as jaeger #FF3333
+  component "OTEL Collector" as otel_collector #FF3333
+  component "Jaeger UI" as jaeger_ui #FF3333
+}
+
+' ------------------------------------------------------------
+' 1. Пользовательские взаимодействия
+customer --> shop_front : "1. Создание заказа"
+shop_front --> shop_api : "REST API"
+
+seller --> crm_front : "2. Управление заказами"
+crm_front --> crm_api : "REST API"
+
+operator --> mes_front : "3. Производство"
+mes_front --> mes_api : "REST API"
+
+api_user --> mes_api : "4. B2B API вызовы"
+
+' ------------------------------------------------------------
+' 2. Бизнес-процессы заказа
+shop_api --> order_service : "5. create_order()"
+order_service --> order_db : "6. Сохранить в БД"
+order_service --> rabbitmq : "7. Отправить в очередь"
+
+rabbitmq --> mes_api : "8. Получить задание расчета"
+mes_api --> s3_storage : "9. Прочитать 3D файл"
+mes_api --> rabbitmq : "10. Отправить результат"
+
+rabbitmq --> crm_api : "11. Обновить статус"
+crm_api --> crm_db : "12. Сохранить в CRM"
+
+' ------------------------------------------------------------
+' 3. ТРЕЙСИНГ - новые связи (красные пунктирные линии)
+shop_api ..[#FF3333,dashed].> otel_collector : "13. Отправить трейсы"
+crm_api ..[#FF3333,dashed].> otel_collector : "14. Отправить трейсы"
+mes_api ..[#FF3333,dashed].> otel_collector : "15. Отправить трейсы"
+order_service ..[#FF3333,dashed].> otel_collector : "16. Отправить трейсы"
+
+otel_collector --> jaeger : "17. Сохранить трейсы"
+jaeger --> jaeger_ui : "18. Предоставить доступ"
+
+' ------------------------------------------------------------
+' 4. Доступ к системе трейсинга
+support --> jaeger_ui : "19. Поиск проблем по order_id"
+developer --> jaeger_ui : "20. Анализ производительности"
+' ------------------------------------------------------------
+' Легенда
+legend right
+  |<color:#FF3333>Красный цвет</color>| = Новые компоненты трейсинга|
+  |<color:#FF3333>Красные пунктирные линии</color>| = Потоки данных трейсинга|
+  |Черные сплошные линии| = Существующие бизнес-потоки|
+endlegend
+
+note bottom of jaeger
+  <b>Собираемые данные:</b>
+  • Trace ID (сквозной идентификатор)
+  • Order ID (привязка к бизнесу)
+  • Время каждого этапа
+  • Статусы операций
+  • Ошибки и исключения
+end note
+
+@enduml
