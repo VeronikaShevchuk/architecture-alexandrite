@@ -1,0 +1,49 @@
+@startuml
+title Процессы кеширования заказов в MES
+
+actor "Оператор" as Operator
+participant "MES UI" as UI
+participant "MES API" as API
+participant "Redis" as Cache
+participant "База данных" as DB
+participant "Очередь" as Queue
+participant "CRM" as CRM
+
+== Чтение списка заказов ==
+
+Operator -> UI : Загружает дашборд
+UI -> API : Запрос активных заказов
+
+API -> Cache : Проверка кеша
+alt Кеш есть
+    Cache -> API : Данные из кеша
+    API -> UI : Быстрый ответ
+    UI -> Operator : Мгновенная загрузка
+else Кеша нет
+    Cache -> API : Нет данных
+    API -> DB : Запрос к БД
+    DB -> API : Результат
+    API -> Cache : Сохранение в кеш
+    API -> UI : Ответ с задержкой
+    UI -> Operator : Загрузка завершена
+end
+
+== Изменение статуса заказа ==
+
+Operator -> UI : Обновляет статус заказа
+UI -> API : Отправка нового статуса
+
+API -> DB : Обновление в БД
+DB -> API : Подтверждение
+
+API -> Cache : Очистка кеша
+Cache -> API : Кеш очищен
+
+API -> Queue : Событие об изменении
+Queue -> CRM : Уведомление CRM
+CRM -> Queue : Подтверждение
+
+API -> UI : Успешное обновление
+UI -> Operator : Статус изменен
+
+@enduml
